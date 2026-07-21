@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, type FormEvent, type RefObject } from "react";
 import { Check, Loader2, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,14 @@ const SUPPORTED_SITES = [
 ] as const;
 
 export type UrlInputProps = {
+  /** Controlled URL value. */
+  value: string;
+  /** Called when the URL input changes. */
+  onChange: (url: string) => void;
   /** Called with the trimmed URL when the form is submitted. */
   onSubmit: (url: string) => void;
+  /** Ref for autofocus and keyboard UX. */
+  inputRef?: RefObject<HTMLInputElement | null>;
   /** Disables input and shows a loading spinner on the submit button. */
   isLoading?: boolean;
   /** Optional error message shown below the input. */
@@ -32,14 +38,15 @@ export type UrlInputProps = {
  * and an Analyze action button.
  */
 export function UrlInput({
+  value,
+  onChange,
   onSubmit,
+  inputRef,
   isLoading = false,
   error = null,
   className,
 }: UrlInputProps) {
-  const [url, setUrl] = useState("");
-
-  const trimmed = url.trim();
+  const trimmed = value.trim();
   const validationState = useMemo(() => {
     if (!trimmed) return "idle" as const;
     if (validateJobUrl(trimmed)) return "valid" as const;
@@ -63,9 +70,10 @@ export function UrlInput({
       >
         <div className="relative min-w-0 flex-1">
           <Input
+            ref={inputRef}
             type="url"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
             placeholder="Paste job listing URL (LinkedIn, Indeed, company careers...)"
             disabled={isLoading}
             aria-invalid={
