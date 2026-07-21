@@ -7,8 +7,10 @@ import {
   GroqServiceError,
   jobAnalysisSchema,
 } from "@/lib/services/groqService";
-import { fetchPageContent } from "@/lib/utils/scraper";
+import { fetchJobListingContent } from "@/lib/utils/scraper";
 import {
+  indeedAnalysisHint,
+  isLikelyIndeedBlockedContent,
   isLikelyLinkedInBlockedContent,
   linkedInAnalysisHint,
   normalizeJobUrl,
@@ -34,7 +36,7 @@ function assertValidJobUrl(url: string, field: string): void {
   if (!validateJobUrl(url)) {
     throw new GroqServiceError(
       "EMPTY_CONTENT",
-      `${field}: URL must be from a known job site (LinkedIn, Indeed, Greenhouse, Lever, etc.)`,
+      `${field}: URL must be from a known job site (LinkedIn, Greenhouse, Lever, etc.)`,
     );
   }
 }
@@ -49,7 +51,7 @@ export async function analyzeJobFromUrl(
   const url = normalizeJobUrl(rawUrl.trim());
   assertValidJobUrl(url, "url");
 
-  const pageContent = await fetchPageContent(url);
+  const { text: pageContent, indeedBlocked } = await fetchJobListingContent(url);
 
   if (url.includes("linkedin.com") && isLikelyLinkedInBlockedContent(pageContent)) {
     throw new GroqServiceError(
@@ -58,12 +60,21 @@ export async function analyzeJobFromUrl(
     );
   }
 
+  if (url.includes("indeed.com") && (indeedBlocked || isLikelyIndeedBlockedContent(pageContent))) {
+    throw new GroqServiceError(
+      "EMPTY_CONTENT",
+      `Could not read the Indeed job description. ${indeedAnalysisHint()}`,
+    );
+  }
+
   if (pageContent.trim().length < MIN_CONTENT_LENGTH) {
     throw new GroqServiceError(
       "EMPTY_CONTENT",
       url.includes("linkedin.com")
         ? `Could not extract job content. ${linkedInAnalysisHint()}`
-        : "Could not extract job content",
+        : url.includes("indeed.com")
+          ? `Could not extract job content. ${indeedAnalysisHint()}`
+          : "Could not extract job content",
     );
   }
 
@@ -101,7 +112,7 @@ export const singleRequestSchema = z
         code: "custom",
         path: ["url"],
         message:
-          "URL must be from a known job site (LinkedIn, Indeed, Greenhouse, Lever, etc.)",
+          "URL must be from a known job site (LinkedIn, Greenhouse, Lever, etc.)",
       });
     }
     if (data.resume_text?.trim()) {

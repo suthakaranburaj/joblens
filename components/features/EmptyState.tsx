@@ -17,12 +17,12 @@ const EXAMPLE_JOBS = [
     url: "https://www.linkedin.com/jobs/view/1234567890",
   },
   {
-    label: "Indeed — Product Designer",
-    url: "https://www.indeed.com/viewjob?jk=abcdef1234567890",
-  },
-  {
     label: "Greenhouse — Backend Developer",
     url: "https://boards.greenhouse.io/example/jobs/1234567",
+  },
+  {
+    label: "Lever — Product Designer",
+    url: "https://jobs.lever.co/example/abcdef12-3456-7890-abcd-ef1234567890",
   },
 ] as const;
 

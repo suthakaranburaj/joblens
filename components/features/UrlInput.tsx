@@ -10,7 +10,6 @@ import { validateJobUrl, validateUrl } from "@/lib/utils/validators";
 
 const SUPPORTED_SITES = [
   "LinkedIn",
-  "Indeed",
   "Greenhouse",
   "Lever",
   "Workday",
@@ -74,7 +73,7 @@ export function UrlInput({
             type="url"
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder="Paste job listing URL (LinkedIn, Indeed, company careers...)"
+            placeholder="Paste job listing URL (LinkedIn, Greenhouse, Lever...)"
             disabled={isLoading}
             aria-invalid={
               validationState === "invalid" || validationState === "unsupported"
@@ -134,7 +133,7 @@ export function UrlInput({
 
       {validationState === "unsupported" ? (
         <p id="url-input-hint" className="text-sm text-amber-600 dark:text-amber-400">
-          URL is valid but not from a supported job site. Try LinkedIn, Indeed,
+          URL is valid but not from a supported job site. Try LinkedIn,
           Greenhouse, Lever, or Workday.
         </p>
       ) : null}

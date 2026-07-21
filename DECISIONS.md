@@ -10,7 +10,7 @@ Documenting product and engineering tradeoffs for **JobLens**.
 
 **Core flow:**
 
-- Paste a job URL from major boards / ATS sites (LinkedIn, Indeed, Greenhouse, Lever, Workday, etc.).
+- Paste a job URL from major boards / ATS sites (LinkedIn, Greenhouse, Lever, Workday, etc.).
 - Server scrapes and cleans page text, then calls **Groq** to produce structured JSON: role metadata, requirements, red flags, culture signals, score, and verdict.
 - Optional resume text triggers a second LLM pass for **match score**, matching/missing skills, and gap analysis.
 - UI includes dark/light theme, loading skeletons, typed errors, and responsive layouts.

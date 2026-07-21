@@ -1,6 +1,6 @@
 # JobLens
 
-JobLens is an AI-powered job posting analyzer. Paste a URL from LinkedIn, Indeed, Greenhouse, Lever, Workday, or other supported boards to extract requirements, culture signals, red flags, and an overall quality score. Optionally paste your resume for a match score and gap analysis.
+JobLens is an AI-powered job posting analyzer. Paste a URL from LinkedIn, Greenhouse, Lever, Workday, or other supported boards to extract requirements, culture signals, red flags, and an overall quality score. Optionally paste your resume for a match score and gap analysis.
 
 ![JobLens screenshot](./docs/screenshot.png)
 

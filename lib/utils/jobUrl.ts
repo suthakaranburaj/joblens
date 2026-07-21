@@ -26,8 +26,9 @@ export function normalizeJobUrl(url: string): string {
 
     if (host.includes("indeed.com")) {
       const jk = parsed.searchParams.get("jk");
-      if (jk) {
-        return `https://www.indeed.com/viewjob?jk=${jk}`;
+      if (jk && /^[a-f0-9]{16}$/i.test(jk)) {
+        const indeedHost = host.endsWith("indeed.com") ? host : "www.indeed.com";
+        return `https://${indeedHost}/viewjob?jk=${jk}`;
       }
     }
 
@@ -80,5 +81,27 @@ export function linkedInAnalysisHint(): string {
     "LinkedIn often blocks automated reads. Use the direct job link " +
     "(Share → Copy link) in the form https://www.linkedin.com/jobs/view/1234567890, " +
     "or try the same role on Greenhouse/Lever if available."
+  );
+}
+
+/**
+ * Heuristics for Indeed challenge pages where no job description is returned.
+ */
+export function isLikelyIndeedBlockedContent(text: string): boolean {
+  const sample = text.slice(0, 2000).toLowerCase();
+  return (
+    sample.includes("security check") ||
+    sample.includes("blocked - indeed") ||
+    (sample.includes("sign in") && sample.includes("indeed") && text.length < 500)
+  );
+}
+
+/**
+ * User-facing hint when an Indeed URL cannot be scraped server-side.
+ */
+export function indeedAnalysisHint(): string {
+  return (
+    "Indeed often shows a bot check to automated requests, so JobLens cannot read the listing from that link alone. " +
+    "Try the same role on the company careers page, Greenhouse, or Lever, or paste a board URL that serves the full description in HTML."
   );
 }

@@ -51,11 +51,10 @@ Run: `npm run smoke` with the server on port 3000 (`npx next start --port 3000`)
 | **Lever** | `jobs.lever.co/leverdemo/5ac21346-…` | **Pass** | Demo board posting works end-to-end |
 | **Company careers** | `stripe.com/jobs/listing/…` | **Partial** | Host allowed; page is client-rendered — often too little text without headless browser |
 | **LinkedIn** | `linkedin.com/jobs/view/…` | **Fail (expected)** | Login / bot wall |
-| **Indeed** | `indeed.com/viewjob?…` | **Fail (expected)** | Bot protection / invalid listing IDs |
 
 **Resume matching:** Tested with Greenhouse URLs + valid resume text — `match` returned when `resume_text` is provided.
 
-**Demo tip:** Prefer **Greenhouse** or **Lever** detail URLs. LinkedIn/Indeed need official APIs or headless scraping for reliability.
+**Demo tip:** Prefer **Greenhouse** or **Lever** detail URLs. Indeed is not listed as a supported board (bot protection). LinkedIn often needs headless scraping or a paste-text fallback.
 
 ---
 

@@ -12,7 +12,6 @@ const MAX_RESUME_LENGTH = 5000;
 /** Hostnames (and suffixes) treated as known job boards / ATS platforms. */
 const KNOWN_JOB_HOSTS: readonly string[] = [
   "linkedin.com",
-  "indeed.com",
   "glassdoor.com",
   "greenhouse.io",
   "boards.greenhouse.io",
@@ -77,7 +76,7 @@ function hostnameMatches(hostname: string, host: string): boolean {
 
 /**
  * Checks whether a URL points at a known job board or ATS domain
- * (LinkedIn, Indeed, Greenhouse, Lever, etc.).
+ * (LinkedIn, Greenhouse, Lever, etc.).
  *
  * @param url - Candidate job posting URL
  * @returns `true` if the URL is valid HTTP(S) and from a known job site

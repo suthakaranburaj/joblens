@@ -32,10 +32,6 @@ const JOB_URLS = [
     name: "LinkedIn (anti-bot expected)",
     url: "https://www.linkedin.com/jobs/view/1234567890",
   },
-  {
-    name: "Indeed (anti-bot expected)",
-    url: "https://www.indeed.com/viewjob?jk=1234567890123456",
-  },
 ];
 
 async function postAnalyze(body) {

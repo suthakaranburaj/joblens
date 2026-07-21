@@ -202,7 +202,7 @@ export function useAnalysis() {
 
       if (!validateJobUrl(trimmedUrl)) {
         const message = validateUrl(trimmedUrl)
-          ? "URL must be from a supported job site (LinkedIn, Indeed, Greenhouse, Lever, etc.)."
+          ? "URL must be from a supported job site (LinkedIn, Greenhouse, Lever, etc.)."
           : "Please enter a valid HTTP or HTTPS job listing URL.";
         setError({ type: "invalid_url", message });
         setUrlFieldError(message);

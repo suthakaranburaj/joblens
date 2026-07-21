@@ -51,7 +51,7 @@ const ERROR_CONFIG: Record<JobLensErrorType, ErrorConfig> = {
     icon: AlertCircle,
     actionLabel: "Use Different URL",
     suggestion:
-      "Paste a direct link to a job posting from LinkedIn, Indeed, Greenhouse, Lever, or Workday.",
+      "Paste a direct link to a job posting from LinkedIn, Greenhouse, Lever, or Workday.",
     iconClassName: "text-amber-600 dark:text-amber-400",
   },
   not_job_listing: {

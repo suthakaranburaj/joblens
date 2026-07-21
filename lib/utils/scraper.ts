@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { fetchIndeedJobContent } from "@/lib/utils/indeedScrape";
 import { logDebug, logError, logWarn } from "@/lib/utils/logger";
 
 const MAX_CONTENT_LENGTH = 15_000;
@@ -103,16 +104,6 @@ function extractCleanText(html: string): string {
   return cleaned.slice(0, MAX_CONTENT_LENGTH);
 }
 
-/**
- * Fetches a web page and returns cleaned textual content suitable for LLM analysis.
- *
- * Uses a browser-like User-Agent, strips scripts/styles/chrome, extracts main content
- * via Cheerio, and truncates to 15,000 characters. Retries failed requests up to twice.
- * On unrecoverable failure, logs the error and returns an empty string.
- *
- * @param url - Absolute HTTP(S) URL to scrape
- * @returns Clean page text, or an empty string if scraping fails
- */
 export async function fetchPageContent(url: string): Promise<string> {
   const attempts = MAX_RETRIES + 1;
 
@@ -153,4 +144,32 @@ export async function fetchPageContent(url: string): Promise<string> {
   }
 
   return "";
+}
+
+export type JobListingScrapeResult = {
+  text: string;
+  indeedBlocked?: boolean;
+};
+
+/**
+ * Fetches job listing text, using Indeed-specific extractors when the URL is from Indeed.
+ */
+export async function fetchJobListingContent(
+  url: string,
+): Promise<JobListingScrapeResult> {
+  if (url.includes("indeed.com")) {
+    const outcome = await fetchIndeedJobContent(url, fetchHtml);
+    if (outcome.text) {
+      return {
+        text:
+          outcome.text.length <= MAX_CONTENT_LENGTH
+            ? outcome.text
+            : outcome.text.slice(0, MAX_CONTENT_LENGTH),
+        indeedBlocked: false,
+      };
+    }
+    return { text: "", indeedBlocked: outcome.blocked };
+  }
+
+  return { text: await fetchPageContent(url) };
 }
