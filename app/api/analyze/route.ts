@@ -1,32 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { GroqServiceError } from "@/lib/services/groqService";
 import {
-  analyzeJobListing,
-  generateMatchScore,
-  GroqServiceError,
-} from "@/lib/services/groqService";
-import { fetchPageContent } from "@/lib/utils/scraper";
+  analyzeJobFromUrl,
+  compareRequestSchema,
+  createAnalyzeJsonResponse,
+  runComparePipeline,
+  singleRequestSchema,
+} from "@/lib/api/analyzeHandlers";
 import {
-  isLikelyLinkedInBlockedContent,
   linkedInAnalysisHint,
   normalizeJobUrl,
 } from "@/lib/utils/jobUrl";
-import {
-  validateJobUrl,
-  validateResumeText,
-  validateUrl,
-} from "@/lib/utils/validators";
 import { logError, logInfo } from "@/lib/utils/logger";
-import type {
-  AnalysisApiResponse,
-  AnalysisRequest,
-  AnalysisResult,
-  MatchResult,
-} from "@/types";
+import type { AnalyzeApiResponse } from "@/types";
 
 export const runtime = "nodejs";
 
-const MIN_CONTENT_LENGTH = 100;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 
@@ -35,57 +25,8 @@ type RateLimitEntry = {
   resetAt: number;
 };
 
-/** In-memory rate limiter: max 10 requests per IP per minute. */
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-/**
- * Zod schema for the analyze request body, including custom URL/resume checks.
- */
-const analysisRequestSchema = z
-  .object({
-    url: z
-      .string({ error: "URL is required" })
-      .trim()
-      .min(1, { message: "URL is required" }),
-    resume_text: z.string().optional(),
-  })
-  .superRefine((data, ctx) => {
-    if (!validateUrl(data.url)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["url"],
-        message: "Invalid HTTP/HTTPS URL",
-      });
-      return;
-    }
-
-    if (!validateJobUrl(data.url)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["url"],
-        message:
-          "URL must be from a known job site (LinkedIn, Indeed, Greenhouse, Lever, etc.)",
-      });
-    }
-
-    if (data.resume_text !== undefined && data.resume_text.trim().length > 0) {
-      const resumeCheck = validateResumeText(data.resume_text);
-      if (!resumeCheck.valid) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["resume_text"],
-          message: resumeCheck.error ?? "Invalid resume text",
-        });
-      }
-    }
-  });
-
-/**
- * Formats Zod issues into a compact, Zod-style error string.
- *
- * @param error - Zod validation error
- * @returns Human-readable validation message
- */
 function formatZodError(error: z.ZodError): string {
   return error.issues
     .map((issue) => {
@@ -95,43 +36,17 @@ function formatZodError(error: z.ZodError): string {
     .join("; ");
 }
 
-/**
- * Builds a typed JSON API response.
- *
- * @param body - ApiResponse payload
- * @param status - HTTP status code
- */
-function jsonResponse(
-  body: AnalysisApiResponse,
-  status: number,
-): NextResponse<AnalysisApiResponse> {
-  return NextResponse.json(body, { status });
-}
-
-/**
- * Resolves the client IP from common proxy headers, falling back to "unknown".
- *
- * @param request - Incoming Next.js request
- */
 function getClientIp(request: NextRequest): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
     const first = forwarded.split(",")[0]?.trim();
     if (first) return first;
   }
-
   const realIp = request.headers.get("x-real-ip")?.trim();
   if (realIp) return realIp;
-
   return "unknown";
 }
 
-/**
- * Applies a simple sliding-window-ish fixed window rate limit per IP.
- *
- * @param ip - Client IP address
- * @returns Whether the request is allowed, plus remaining quota metadata
- */
 function checkRateLimit(ip: string): {
   allowed: boolean;
   remaining: number;
@@ -170,9 +85,6 @@ function checkRateLimit(ip: string): {
   };
 }
 
-/**
- * Periodically prunes expired rate-limit entries to avoid unbounded Map growth.
- */
 function pruneRateLimitStore(): void {
   const now = Date.now();
   for (const [ip, entry] of rateLimitStore.entries()) {
@@ -182,18 +94,10 @@ function pruneRateLimitStore(): void {
   }
 }
 
-/**
- * Maps Groq service failures to HTTP status + client-safe messages.
- *
- * @param error - Groq service error
- */
 function mapGroqError(
   error: GroqServiceError,
   context?: { url?: string },
-): {
-  status: number;
-  message: string;
-} {
+): { status: number; message: string } {
   const isLinkedIn = context?.url?.includes("linkedin.com") ?? false;
   switch (error.code) {
     case "RATE_LIMIT":
@@ -215,8 +119,6 @@ function mapGroqError(
           ? `${error.message} ${linkedInAnalysisHint()}`
           : error.message,
       };
-    case "NETWORK":
-    case "API":
     default:
       return {
         status: 500,
@@ -225,15 +127,20 @@ function mapGroqError(
   }
 }
 
-/**
- * POST /api/analyze
- *
- * Accepts a job posting URL (and optional resume text), scrapes the page,
- * runs Groq analysis, and optionally generates a resume match score.
- */
+function isCompareBody(
+  body: unknown,
+): body is { mode: "compare" } & Record<string, unknown> {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    "mode" in body &&
+    (body as { mode: string }).mode === "compare"
+  );
+}
+
 export async function POST(
   request: NextRequest,
-): Promise<NextResponse<AnalysisApiResponse>> {
+): Promise<NextResponse<AnalyzeApiResponse>> {
   const startedAt = Date.now();
   const ip = getClientIp(request);
   let requestUrl = "unknown";
@@ -243,13 +150,7 @@ export async function POST(
 
   const rate = checkRateLimit(ip);
   if (!rate.allowed) {
-    logInfo("Analyze request rate limited", {
-      ip,
-      timestamp: new Date().toISOString(),
-      retryAfterSec: rate.retryAfterSec,
-    });
-
-    const response = jsonResponse(
+    const response = createAnalyzeJsonResponse(
       {
         success: false,
         error: "Too many requests. Please wait a minute and try again.",
@@ -257,8 +158,6 @@ export async function POST(
       429,
     );
     response.headers.set("Retry-After", String(rate.retryAfterSec));
-    response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
-    response.headers.set("X-RateLimit-Remaining", "0");
     return response;
   }
 
@@ -267,105 +166,75 @@ export async function POST(
     try {
       rawBody = await request.json();
     } catch {
-      return jsonResponse(
-        {
-          success: false,
-          error: "body: Invalid JSON payload",
-        },
+      return createAnalyzeJsonResponse(
+        { success: false, error: "body: Invalid JSON payload" },
         400,
       );
     }
 
-    const parsed = analysisRequestSchema.safeParse(rawBody);
+    if (isCompareBody(rawBody)) {
+      const parsed = compareRequestSchema.safeParse(rawBody);
+      if (!parsed.success) {
+        return createAnalyzeJsonResponse(
+          { success: false, error: formatZodError(parsed.error) },
+          400,
+        );
+      }
+
+      const jobAUrl = normalizeJobUrl(parsed.data.jobA_url);
+      const jobBUrl = normalizeJobUrl(parsed.data.jobB_url);
+      const resume = parsed.data.resume_text?.trim() || undefined;
+      resumeProvided = Boolean(resume);
+      requestUrl = `${jobAUrl} | ${jobBUrl}`;
+
+      logInfo("Compare request received", {
+        ip,
+        jobA_url: jobAUrl,
+        jobB_url: jobBUrl,
+        resumeProvided,
+        hasCachedA: Boolean(parsed.data.jobA_analysis),
+        hasCachedB: Boolean(parsed.data.jobB_analysis),
+      });
+
+      const data = await runComparePipeline({
+        jobA_url: jobAUrl,
+        jobB_url: jobBUrl,
+        resume_text: resume,
+        jobA_analysis: parsed.data.jobA_analysis,
+        jobB_analysis: parsed.data.jobB_analysis,
+      });
+
+      const elapsedMs = Date.now() - startedAt;
+      const response = createAnalyzeJsonResponse({ success: true, data }, 200);
+      response.headers.set("X-RateLimit-Remaining", String(rate.remaining));
+      response.headers.set("X-Response-Time", `${elapsedMs}ms`);
+      return response;
+    }
+
+    const parsed = singleRequestSchema.safeParse(rawBody);
     if (!parsed.success) {
-      return jsonResponse(
-        {
-          success: false,
-          error: formatZodError(parsed.error),
-        },
+      return createAnalyzeJsonResponse(
+        { success: false, error: formatZodError(parsed.error) },
         400,
       );
     }
 
-    const body: AnalysisRequest = {
-      url: normalizeJobUrl(parsed.data.url.trim()),
-      resume_text: parsed.data.resume_text?.trim()
-        ? parsed.data.resume_text.trim()
-        : undefined,
-    };
-
-    requestUrl = body.url;
-    resumeProvided = Boolean(body.resume_text);
+    const url = normalizeJobUrl(parsed.data.url);
+    const resume = parsed.data.resume_text?.trim() || undefined;
+    requestUrl = url;
+    resumeProvided = Boolean(resume);
 
     logInfo("Analyze request received", {
       ip,
       url: requestUrl,
-      originalUrl: parsed.data.url.trim(),
       resumeProvided,
-      timestamp: new Date().toISOString(),
     });
 
-    const pageContent = await fetchPageContent(body.url);
-    if (
-      body.url.includes("linkedin.com") &&
-      isLikelyLinkedInBlockedContent(pageContent)
-    ) {
-      return jsonResponse(
-        {
-          success: false,
-          error: `Could not read the LinkedIn job description. ${linkedInAnalysisHint()}`,
-        },
-        400,
-      );
-    }
-
-    if (pageContent.trim().length < MIN_CONTENT_LENGTH) {
-      const elapsedMs = Date.now() - startedAt;
-      logInfo("Analyze request rejected: content too short", {
-        ip,
-        url: requestUrl,
-        contentLength: pageContent.trim().length,
-        elapsedMs,
-      });
-
-      return jsonResponse(
-        {
-          success: false,
-          error: body.url.includes("linkedin.com")
-            ? `Could not extract job content. ${linkedInAnalysisHint()}`
-            : "Could not extract job content",
-        },
-        400,
-      );
-    }
-
-    const analysis = await analyzeJobListing(pageContent, body.resume_text);
-
-    let match: MatchResult | undefined;
-    if (body.resume_text) {
-      match = await generateMatchScore(analysis, body.resume_text);
-    }
-
-    const data: AnalysisResult = match ? { analysis, match } : { analysis };
+    const { analysis, match } = await analyzeJobFromUrl(url, resume);
+    const data = match ? { analysis, match } : { analysis };
     const elapsedMs = Date.now() - startedAt;
 
-    logInfo("Analyze request succeeded", {
-      ip,
-      url: requestUrl,
-      resumeProvided,
-      elapsedMs,
-      overallScore: analysis.overall_score,
-      matchScore: match?.match_score,
-    });
-
-    const response = jsonResponse(
-      {
-        success: true,
-        data,
-      },
-      200,
-    );
-    response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX_REQUESTS));
+    const response = createAnalyzeJsonResponse({ success: true, data }, 200);
     response.headers.set("X-RateLimit-Remaining", String(rate.remaining));
     response.headers.set("X-Response-Time", `${elapsedMs}ms`);
     return response;
@@ -377,18 +246,12 @@ export async function POST(
       logError("Analyze request failed (Groq)", {
         ip,
         url: requestUrl,
-        resumeProvided,
         elapsedMs,
         code: error.code,
         message: error.message,
-        status: mapped.status,
       });
-
-      const response = jsonResponse(
-        {
-          success: false,
-          error: mapped.message,
-        },
+      const response = createAnalyzeJsonResponse(
+        { success: false, error: mapped.message },
         mapped.status,
       );
       response.headers.set("X-Response-Time", `${elapsedMs}ms`);
@@ -398,12 +261,11 @@ export async function POST(
     logError("Analyze request failed", {
       ip,
       url: requestUrl,
-      resumeProvided,
       elapsedMs,
       message: error instanceof Error ? error.message : "Unknown error",
     });
 
-    return jsonResponse(
+    return createAnalyzeJsonResponse(
       {
         success: false,
         error:

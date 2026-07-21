@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { JobAnalysis, MatchResult } from "@/types";
+import type { JobAnalysis, JobComparison, MatchResult } from "@/types";
 import { logDebug, logError, logInfo, logWarn } from "@/lib/utils/logger";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -801,5 +801,169 @@ export async function generateMatchScore(
       "API",
       "Unexpected error while generating the match score.",
     );
+  }
+}
+
+const comparisonWinnerSchema = z.enum(["A", "B", "tie"]);
+
+const comparisonCategorySchema = z.object({
+  winner: comparisonWinnerSchema,
+  explanation: z.string().min(1),
+});
+
+/** Zod schema for `JobComparison`. */
+export const jobComparisonSchema = z.object({
+  winner: comparisonWinnerSchema,
+  summary: z.string().min(1),
+  category_scores: z.object({
+    salary: comparisonCategorySchema,
+    growth: comparisonCategorySchema,
+    culture: comparisonCategorySchema,
+    requirements_match: comparisonCategorySchema,
+    red_flags: comparisonCategorySchema,
+  }),
+  recommendation: z.string().min(1),
+});
+
+function coerceComparisonWinner(value: unknown): "A" | "B" | "tie" {
+  if (typeof value !== "string") return "tie";
+  const v = value.trim().toUpperCase();
+  if (v === "A" || v === "JOB A" || v === "JOBA") return "A";
+  if (v === "B" || v === "JOB B" || v === "JOBB") return "B";
+  if (v === "TIE" || v === "DRAW") return "tie";
+  return "tie";
+}
+
+function coerceCategoryScore(raw: unknown): {
+  winner: "A" | "B" | "tie";
+  explanation: string;
+} {
+  if (!raw || typeof raw !== "object") {
+    return { winner: "tie", explanation: "Insufficient comparison data." };
+  }
+  const item = raw as Record<string, unknown>;
+  return {
+    winner: coerceComparisonWinner(item.winner),
+    explanation:
+      typeof item.explanation === "string" && item.explanation.trim()
+        ? item.explanation.trim()
+        : "No explanation provided.",
+  };
+}
+
+function parseJobComparison(raw: unknown): JobComparison {
+  if (!raw || typeof raw !== "object") {
+    throw new GroqServiceError("VALIDATION", "Invalid comparison JSON.");
+  }
+  const source = raw as Record<string, unknown>;
+  const categories =
+    source.category_scores && typeof source.category_scores === "object"
+      ? (source.category_scores as Record<string, unknown>)
+      : {};
+
+  const coerced = {
+    winner: coerceComparisonWinner(source.winner),
+    summary:
+      typeof source.summary === "string" && source.summary.trim()
+        ? source.summary.trim()
+        : "Comparison summary unavailable.",
+    category_scores: {
+      salary: coerceCategoryScore(categories.salary),
+      growth: coerceCategoryScore(categories.growth),
+      culture: coerceCategoryScore(categories.culture),
+      requirements_match: coerceCategoryScore(categories.requirements_match),
+      red_flags: coerceCategoryScore(categories.red_flags),
+    },
+    recommendation:
+      typeof source.recommendation === "string" && source.recommendation.trim()
+        ? source.recommendation.trim()
+        : "Review both offers against your priorities.",
+  };
+
+  return jobComparisonSchema.parse(coerced);
+}
+
+function buildCompareSystemPrompt(): string {
+  return [
+    "You are JobLens, an expert career advisor comparing two job offers objectively.",
+    "Return ONLY valid JSON (no markdown) matching this shape:",
+    JSON.stringify(
+      {
+        winner: "A | B | tie",
+        summary: "string",
+        category_scores: {
+          salary: { winner: "A | B | tie", explanation: "string" },
+          growth: { winner: "A | B | tie", explanation: "string" },
+          culture: { winner: "A | B | tie", explanation: "string" },
+          requirements_match: { winner: "A | B | tie", explanation: "string" },
+          red_flags: { winner: "A | B | tie", explanation: "string" },
+        },
+        recommendation:
+          "Choose Job A if you value X; choose Job B if you value Y.",
+      },
+      null,
+      2,
+    ),
+    "Use only facts from the provided analyses. For red_flags, fewer/severe flags lose.",
+    "For requirements_match, consider resume fit when resume text is provided.",
+  ].join("\n");
+}
+
+/**
+ * Compares two structured job analyses with Groq.
+ */
+export async function compareTwoJobs(
+  jobA: JobAnalysis,
+  jobB: JobAnalysis,
+  resumeText?: string,
+): Promise<JobComparison> {
+  const resume = resumeText?.trim();
+  logDebug("compareTwoJobs started", {
+    jobA: jobA.role_title,
+    jobB: jobB.role_title,
+    hasResume: Boolean(resume),
+  });
+
+  const raw = await callGroqChatCompletion(
+    [
+      { role: "system", content: buildCompareSystemPrompt() },
+      {
+        role: "user",
+        content: [
+          "Compare these two job listings.",
+          "",
+          "Job A analysis JSON:",
+          JSON.stringify(jobA, null, 2),
+          "",
+          "Job B analysis JSON:",
+          JSON.stringify(jobB, null, 2),
+          resume
+            ? `\nThe user's resume highlights:\n${resume}\n`
+            : "",
+          "",
+          "Return the comparison JSON now.",
+        ].join("\n"),
+      },
+    ],
+    "compareTwoJobs",
+  );
+
+  try {
+    const jsonText = extractJsonPayload(raw);
+    const parsed = parseJsonSafe(jsonText);
+    const validated = parseJobComparison(parsed);
+    return validated;
+  } catch (error) {
+    if (error instanceof GroqServiceError) throw error;
+    if (error instanceof z.ZodError) {
+      logError("JobComparison schema validation failed", {
+        issues: error.issues,
+      });
+      throw new GroqServiceError(
+        "VALIDATION",
+        "Could not structure the job comparison. Please try again.",
+      );
+    }
+    throw new GroqServiceError("API", "Unexpected error while comparing jobs.");
   }
 }

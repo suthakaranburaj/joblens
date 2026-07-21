@@ -47,11 +47,50 @@ export interface MatchResult {
   gap_analysis: string;
 }
 
-/** Payload for the analyze API endpoint. */
-export interface AnalysisRequest {
+/** Winner label for comparison categories. */
+export type ComparisonWinner = "A" | "B" | "tie";
+
+/** Per-category comparison outcome. */
+export interface ComparisonCategoryScore {
+  winner: ComparisonWinner;
+  explanation: string;
+}
+
+/** LLM-generated comparison of two job analyses. */
+export interface JobComparison {
+  winner: ComparisonWinner;
+  summary: string;
+  category_scores: {
+    salary: ComparisonCategoryScore;
+    growth: ComparisonCategoryScore;
+    culture: ComparisonCategoryScore;
+    requirements_match: ComparisonCategoryScore;
+    red_flags: ComparisonCategoryScore;
+  };
+  recommendation: string;
+}
+
+/** Single-job analyze request. */
+export interface SingleAnalysisRequest {
+  mode?: "single";
   url: string;
   resume_text?: string;
 }
+
+/** Two-job compare request. */
+export interface CompareAnalysisRequest {
+  mode: "compare";
+  jobA_url: string;
+  jobB_url: string;
+  resume_text?: string;
+  /** When provided, skips re-scraping Job A. */
+  jobA_analysis?: JobAnalysis;
+  /** When provided, skips re-scraping Job B. */
+  jobB_analysis?: JobAnalysis;
+}
+
+/** Payload for the analyze API endpoint. */
+export type AnalysisRequest = SingleAnalysisRequest | CompareAnalysisRequest;
 
 /** Standard API envelope for success and error responses. */
 export interface ApiResponse<T> {
@@ -66,5 +105,29 @@ export interface AnalysisResult {
   match?: MatchResult;
 }
 
-/** Typed analyze endpoint response. */
+/** Compare mode API payload. */
+export interface CompareResult {
+  jobA: JobAnalysis;
+  jobB: JobAnalysis;
+  comparison: JobComparison;
+}
+
+/** Typed analyze endpoint response (single mode). */
 export type AnalysisApiResponse = ApiResponse<AnalysisResult>;
+
+/** Typed analyze endpoint response (compare mode). */
+export type CompareApiResponse = ApiResponse<CompareResult>;
+
+/** Union of analyze API success payloads. */
+export type AnalyzeApiResponse = AnalysisApiResponse | CompareApiResponse;
+
+/** App UI mode. */
+export type AnalysisMode = "single" | "compare";
+
+/** State for one job slot in compare mode. */
+export interface JobSlotState {
+  url: string;
+  analysis: JobAnalysis | null;
+  loading: boolean;
+  error: { type: string; message: string } | null;
+}
