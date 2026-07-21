@@ -7,6 +7,11 @@ import {
 } from "@/lib/services/groqService";
 import { fetchPageContent } from "@/lib/utils/scraper";
 import {
+  isLikelyLinkedInBlockedContent,
+  linkedInAnalysisHint,
+  normalizeJobUrl,
+} from "@/lib/utils/jobUrl";
+import {
   validateJobUrl,
   validateResumeText,
   validateUrl,
@@ -182,10 +187,14 @@ function pruneRateLimitStore(): void {
  *
  * @param error - Groq service error
  */
-function mapGroqError(error: GroqServiceError): {
+function mapGroqError(
+  error: GroqServiceError,
+  context?: { url?: string },
+): {
   status: number;
   message: string;
 } {
+  const isLinkedIn = context?.url?.includes("linkedin.com") ?? false;
   switch (error.code) {
     case "RATE_LIMIT":
       return { status: 429, message: error.message };
@@ -200,7 +209,12 @@ function mapGroqError(error: GroqServiceError): {
     case "EMPTY_CONTENT":
     case "PARSE":
     case "VALIDATION":
-      return { status: 500, message: error.message };
+      return {
+        status: isLinkedIn ? 400 : 500,
+        message: isLinkedIn
+          ? `${error.message} ${linkedInAnalysisHint()}`
+          : error.message,
+      };
     case "NETWORK":
     case "API":
     default:
@@ -274,7 +288,7 @@ export async function POST(
     }
 
     const body: AnalysisRequest = {
-      url: parsed.data.url.trim(),
+      url: normalizeJobUrl(parsed.data.url.trim()),
       resume_text: parsed.data.resume_text?.trim()
         ? parsed.data.resume_text.trim()
         : undefined,
@@ -286,11 +300,25 @@ export async function POST(
     logInfo("Analyze request received", {
       ip,
       url: requestUrl,
+      originalUrl: parsed.data.url.trim(),
       resumeProvided,
       timestamp: new Date().toISOString(),
     });
 
     const pageContent = await fetchPageContent(body.url);
+    if (
+      body.url.includes("linkedin.com") &&
+      isLikelyLinkedInBlockedContent(pageContent)
+    ) {
+      return jsonResponse(
+        {
+          success: false,
+          error: `Could not read the LinkedIn job description. ${linkedInAnalysisHint()}`,
+        },
+        400,
+      );
+    }
+
     if (pageContent.trim().length < MIN_CONTENT_LENGTH) {
       const elapsedMs = Date.now() - startedAt;
       logInfo("Analyze request rejected: content too short", {
@@ -303,7 +331,9 @@ export async function POST(
       return jsonResponse(
         {
           success: false,
-          error: "Could not extract job content",
+          error: body.url.includes("linkedin.com")
+            ? `Could not extract job content. ${linkedInAnalysisHint()}`
+            : "Could not extract job content",
         },
         400,
       );
@@ -343,7 +373,7 @@ export async function POST(
     const elapsedMs = Date.now() - startedAt;
 
     if (error instanceof GroqServiceError) {
-      const mapped = mapGroqError(error);
+      const mapped = mapGroqError(error, { url: requestUrl });
       logError("Analyze request failed (Groq)", {
         ip,
         url: requestUrl,

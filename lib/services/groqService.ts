@@ -47,6 +47,177 @@ export const matchResultSchema = z.object({
   gap_analysis: z.string().min(1),
 });
 
+const WORK_MODEL_VALUES = [
+  "Remote",
+  "Hybrid",
+  "On-site",
+  "Not specified",
+] as const;
+
+const EMPLOYMENT_TYPE_VALUES = [
+  "Full-time",
+  "Part-time",
+  "Contract",
+  "Internship",
+  "Not specified",
+] as const;
+
+const GROWTH_POTENTIAL_VALUES = ["High", "Medium", "Low", "Unclear"] as const;
+
+/**
+ * Maps loose LLM enum strings onto allowed literal values.
+ */
+function normalizeEnumValue<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  const exact = allowed.find(
+    (item) => item.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (exact) {
+    return exact;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("remote")) return "Remote" as T;
+  if (lower.includes("hybrid")) return "Hybrid" as T;
+  if (lower.includes("on-site") || lower.includes("onsite")) {
+    return "On-site" as T;
+  }
+  if (lower.includes("full")) return "Full-time" as T;
+  if (lower.includes("part")) return "Part-time" as T;
+  if (lower.includes("contract")) return "Contract" as T;
+  if (lower.includes("intern")) return "Internship" as T;
+  if (lower.includes("high")) return "High" as T;
+  if (lower.includes("medium") || lower.includes("med")) return "Medium" as T;
+  if (lower.includes("low")) return "Low" as T;
+
+  return fallback;
+}
+
+/**
+ * Coerces common LLM JSON mistakes before Zod validation.
+ */
+function coerceJobAnalysisRaw(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") {
+    return raw;
+  }
+
+  const source = raw as Record<string, unknown>;
+
+  let overallScore: number = 50;
+  if (typeof source.overall_score === "number") {
+    overallScore = source.overall_score;
+  } else if (typeof source.overall_score === "string") {
+    overallScore = Number.parseFloat(source.overall_score);
+  }
+  if (Number.isFinite(overallScore)) {
+    if (overallScore > 0 && overallScore <= 10) {
+      overallScore *= 10;
+    }
+    overallScore = Math.min(100, Math.max(0, overallScore));
+  } else {
+    overallScore = 50;
+  }
+
+  const redFlagsRaw = Array.isArray(source.red_flags) ? source.red_flags : [];
+  const red_flags = redFlagsRaw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const flag = item as Record<string, unknown>;
+      const title =
+        typeof flag.flag === "string"
+          ? flag.flag
+          : typeof flag.title === "string"
+            ? flag.title
+            : "";
+      const explanation =
+        typeof flag.explanation === "string" ? flag.explanation : "";
+      if (!title.trim() || !explanation.trim()) return null;
+      const severity = normalizeEnumValue(
+        typeof flag.severity === "string"
+          ? flag.severity.toLowerCase()
+          : flag.severity,
+        ["low", "medium", "high"] as const,
+        "medium",
+      );
+      return {
+        flag: title.trim(),
+        severity,
+        explanation: explanation.trim(),
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  return {
+    role_title:
+      typeof source.role_title === "string" && source.role_title.trim()
+        ? source.role_title.trim()
+        : "Unknown role",
+    company:
+      source.company === null || typeof source.company === "string"
+        ? source.company
+        : null,
+    location:
+      source.location === null || typeof source.location === "string"
+        ? source.location
+        : null,
+    work_model: normalizeEnumValue(
+      source.work_model,
+      WORK_MODEL_VALUES,
+      "Not specified",
+    ),
+    salary_range:
+      source.salary_range === null || typeof source.salary_range === "string"
+        ? source.salary_range
+        : null,
+    employment_type: normalizeEnumValue(
+      source.employment_type,
+      EMPLOYMENT_TYPE_VALUES,
+      "Not specified",
+    ),
+    key_requirements: Array.isArray(source.key_requirements)
+      ? source.key_requirements.filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0,
+        )
+      : [],
+    nice_to_have: Array.isArray(source.nice_to_have)
+      ? source.nice_to_have.filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0,
+        )
+      : [],
+    red_flags,
+    culture_signals:
+      typeof source.culture_signals === "string"
+        ? source.culture_signals
+        : "No culture signals extracted.",
+    growth_potential: normalizeEnumValue(
+      source.growth_potential,
+      GROWTH_POTENTIAL_VALUES,
+      "Unclear",
+    ),
+    overall_score: overallScore,
+    verdict:
+      typeof source.verdict === "string" && source.verdict.trim()
+        ? source.verdict.trim()
+        : "Analysis completed with limited page context.",
+  };
+}
+
+/**
+ * Parses and validates model output into a `JobAnalysis` object.
+ */
+export function parseJobAnalysis(raw: unknown): JobAnalysis {
+  const coerced = coerceJobAnalysisRaw(raw);
+  return jobAnalysisSchema.parse(coerced);
+}
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -522,7 +693,7 @@ export async function analyzeJobListing(
   try {
     const jsonText = extractJsonPayload(raw);
     const parsed = parseJsonSafe(jsonText);
-    const validated = jobAnalysisSchema.parse(parsed);
+    const validated = parseJobAnalysis(parsed);
     logDebug("analyzeJobListing validated", {
       role_title: validated.role_title,
       overall_score: validated.overall_score,
@@ -539,7 +710,7 @@ export async function analyzeJobListing(
       });
       throw new GroqServiceError(
         "VALIDATION",
-        "Model returned JSON that did not match the JobAnalysis schema.",
+        "We could not structure the analysis from this page. The listing may be incomplete or blocked (common on LinkedIn search/login pages). Use a direct job URL such as https://www.linkedin.com/jobs/view/1234567890, or try Greenhouse/Lever.",
       );
     }
 

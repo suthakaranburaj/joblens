@@ -11,3 +11,8 @@ export {
 } from "@/lib/utils/validators";
 export { logDebug, logInfo, logWarn, logError } from "@/lib/utils/logger";
 export { fetchPageContent } from "@/lib/utils/scraper";
+export {
+  normalizeJobUrl,
+  isLikelyLinkedInBlockedContent,
+  linkedInAnalysisHint,
+} from "@/lib/utils/jobUrl";

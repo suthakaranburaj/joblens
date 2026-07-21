@@ -9,6 +9,7 @@ import {
   validateResumeText,
   validateUrl,
 } from "@/lib/utils/validators";
+import { normalizeJobUrl } from "@/lib/utils/jobUrl";
 import { logError } from "@/lib/utils/logger";
 import type {
   AnalysisApiResponse,
@@ -64,7 +65,18 @@ function mapApiError(status: number, message: string): AnalysisError {
     return { type: "not_job_listing", message };
   }
 
+  if (
+    lowered.includes("could not structure") ||
+    lowered.includes("linkedin") ||
+    lowered.includes("job description")
+  ) {
+    return { type: "not_job_listing", message };
+  }
+
   if (status === 400) {
+    if (lowered.includes("job content") || lowered.includes("linkedin")) {
+      return { type: "fetch_failed", message };
+    }
     return { type: "invalid_url", message };
   }
 
@@ -95,7 +107,7 @@ export function useAnalysis() {
     async (targetUrl: string, targetResume: string) => {
       if (submitInFlight.current) return;
 
-      const trimmedUrl = targetUrl.trim();
+      const trimmedUrl = normalizeJobUrl(targetUrl.trim());
       const trimmedResume = targetResume.trim();
 
       if (!validateJobUrl(trimmedUrl)) {
@@ -190,7 +202,7 @@ export function useAnalysis() {
 
   const handleSubmit = useCallback(
     (submittedUrl?: string) => {
-      const target = (submittedUrl ?? url).trim();
+      const target = normalizeJobUrl((submittedUrl ?? url).trim());
       if (!target || isLoading) return;
       setUrl(target);
       void runAnalysis(target, resumeText);
