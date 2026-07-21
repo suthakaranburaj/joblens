@@ -2,6 +2,8 @@
 
 JobLens is an AI-powered job posting analyzer. Paste a URL from LinkedIn, Greenhouse, Lever, Workday, or other supported boards to extract requirements, culture signals, red flags, and an overall quality score. Optionally paste your resume for a match score and gap analysis.
 
+[Live Link](https://joblens-dusky.vercel.app/)
+
 ![JobLens screenshot](./docs/screenshot.png)
 
 > **Screenshot placeholder:** Add `docs/screenshot.png` after capturing the home page and an analysis result.
@@ -28,7 +30,7 @@ JobLens is an AI-powered job posting analyzer. Paste a URL from LinkedIn, Greenh
 1. **Clone and enter the project**
 
    ```bash
-   git clone <your-repo-url>
+   git clone <https://github.com/suthakaranburaj/joblens.git>
    cd joblens
    ```
 
