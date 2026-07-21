@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import type { AnalysisApiResponse } from "@/types";
 
 export async function POST() {
-  return NextResponse.json(
-    { error: "Analyze endpoint not implemented yet." },
-    { status: 501 },
-  );
+  const body: AnalysisApiResponse = {
+    success: false,
+    error: "Analyze endpoint not implemented yet.",
+  };
+
+  return NextResponse.json(body, { status: 501 });
 }
