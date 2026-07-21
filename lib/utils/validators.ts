@@ -18,6 +18,7 @@ const KNOWN_JOB_HOSTS: readonly string[] = [
   "boards.greenhouse.io",
   "lever.co",
   "jobs.lever.co",
+  "jobs.eu.lever.co",
   "wellfound.com",
   "angel.co",
   "monster.com",
@@ -40,6 +41,7 @@ const KNOWN_JOB_HOSTS: readonly string[] = [
   "weworkremotely.com",
   "flexjobs.com",
   "careerbuilder.com",
+  "stripe.com",
 ] as const;
 
 /**

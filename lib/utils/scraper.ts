@@ -67,6 +67,8 @@ function extractCleanText(html: string): string {
   ).remove();
 
   const mainCandidates = [
+    $(".posting-page, .posting, .content, .section.page").first(),
+    $("[data-qa='job-description'], .JobListing, .job-listing, .job__description").first(),
     $("main").first(),
     $('[role="main"]').first(),
     $("article").first(),
@@ -80,6 +82,11 @@ function extractCleanText(html: string): string {
       text = candidate.text();
       if (text.trim().length > 0) break;
     }
+  }
+
+  const bodyText = $("body").text().trim();
+  if (text.trim().length < 100 && bodyText.length > text.trim().length) {
+    text = bodyText;
   }
 
   const cleaned = text

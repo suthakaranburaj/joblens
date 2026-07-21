@@ -155,4 +155,26 @@
     transition-duration: 200ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    html,
+    body,
+    header,
+    main,
+    footer,
+    button,
+    a,
+    input,
+    textarea,
+    select {
+      transition-duration: 0ms !important;
+    }
+
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
 }
