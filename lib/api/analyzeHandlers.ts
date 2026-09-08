@@ -20,6 +20,7 @@ import {
   validateResumeText,
   validateUrl,
 } from "@/lib/utils/validators";
+import { logWarn } from "@/lib/utils/logger";
 import type {
   AnalyzeApiResponse,
   CompareResult,
@@ -81,7 +82,17 @@ export async function analyzeJobFromUrl(
   const analysis = await analyzeJobListing(pageContent, resumeText);
   let match: MatchResult | undefined;
   if (resumeText?.trim()) {
-    match = await generateMatchScore(analysis, resumeText);
+    try {
+      match = await generateMatchScore(analysis, resumeText);
+    } catch (error) {
+      // Resume matching is optional. Keep the successful base analysis when
+      // the second model call is rate-limited or returns invalid output.
+      logWarn("Resume match generation failed; returning base analysis", {
+        url,
+        code: error instanceof GroqServiceError ? error.code : "UNKNOWN",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   }
   return match ? { analysis, match } : { analysis };
 }

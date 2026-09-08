@@ -47,6 +47,30 @@ export const matchResultSchema = z.object({
   gap_analysis: z.string().min(1),
 });
 
+/**
+ * Coerces numeric-looking match scores returned as strings by the model.
+ */
+function coerceMatchResultRaw(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") {
+    return raw;
+  }
+
+  const source = raw as Record<string, unknown>;
+  let matchScore = source.match_score;
+
+  if (typeof matchScore === "string") {
+    const parsed = Number.parseFloat(matchScore.replace("%", "").trim());
+    if (Number.isFinite(parsed)) {
+      matchScore = parsed;
+    }
+  }
+
+  return {
+    ...source,
+    match_score: matchScore,
+  };
+}
+
 const WORK_MODEL_VALUES = [
   "Remote",
   "Hybrid",
@@ -772,7 +796,7 @@ export async function generateMatchScore(
   try {
     const jsonText = extractJsonPayload(raw);
     const parsed = parseJsonSafe(jsonText);
-    const validated = matchResultSchema.parse(parsed);
+    const validated = matchResultSchema.parse(coerceMatchResultRaw(parsed));
     logDebug("generateMatchScore validated", {
       match_score: validated.match_score,
       matchingCount: validated.matching_skills.length,
