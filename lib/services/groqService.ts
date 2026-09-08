@@ -3,7 +3,7 @@ import type { JobAnalysis, JobComparison, MatchResult } from "@/types";
 import { logDebug, logError, logInfo, logWarn } from "@/lib/utils/logger";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const PRIMARY_MODEL = "llama-3.3-70b-versatile";
+const PRIMARY_MODEL = 'openai/gpt-oss-20b';
 const FALLBACK_MODEL = "mixtral-8x7b-32768";
 const TEMPERATURE = 0.3;
 const MAX_TOKENS = 2000;
